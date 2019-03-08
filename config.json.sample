@@ -1,0 +1,6 @@
+{
+  "password": "password",
+  "cliParams":{
+    "is_bot":true
+  }
+}
