@@ -71,6 +71,24 @@ class TDLibService
         return $responseObject;
     }
     
+    public function barequery(string $queryString, ?int $timeout = null): ?string
+    {
+        $responseJsonString = null;
+        try {
+            $responseJsonString = $this->client->query($queryString, $timeout ?? 1);
+        } catch (\Exception $e) {
+            var_dump(__CLASS__ . '::' . __METHOD__, $e);
+            $responseJsonString = json_encode([
+              '@type' => 'error',
+              'code' => 500,
+              'message' => 'CLIENT_QUERY_ERROR',
+              'error' => $e
+            ]);
+            
+        }
+        return $responseJsonString;
+    }
+    
     public function receive(?int $timeout = null){
       $responseObject = null;
       try {
@@ -167,8 +185,12 @@ class TDLibService
         return $this->query($queryArray);
     }
     
-    public function authorizationStateWaitPassword(string $password){
-      
+    public function checkAuthenticationPassword(string $password){
+      $queryArray = [
+          '@type' => 'checkAuthenticationPassword',
+          'password' => $password
+      ];
+      return $this->query($queryArray);
     }
     
     
@@ -201,47 +223,72 @@ class TDLibService
     public function cliLogIn(){
       $tries=0;
       $max_tries = 3;
-      $this->getAuthorizationState();
-      while($this->authorizationState !== TDLibService::AUTH_STATE_READY){
-        echo "Do you want to login as User [u] or as a Bot [b]? [u]";
-        $stdin = trim(fgets(STDIN));
+      $status = $this->getAuthorizationState();
+      while($status->{"@type"} !== TDLibService::AUTH_STATE_READY){
         
-        if( $this->authorizationState == TDLibService::AUTH_STATE_WAIT_PHONE_NUMBER ){
+        
+        
+        if(in_array($status->{"@type"},[TDLibService::AUTH_STATE_WAIT_PHONE_NUMBER,TDLibService::AUTH_STATE_WAIT_CODE,TDLibService::AUTH_STATE_WAIT_2FA])){
+          
+          if($status->{"@type"}==TDLibService::AUTH_STATE_WAIT_PHONE_NUMBER){
+            echo "Do you want to login as User [u] or as a Bot [b]? [u]";
+            $stdin = trim(fgets(STDIN));
+          }elseif(in_array($status->{"@type"},[TDLibService::AUTH_STATE_WAIT_CODE,TDLibService::AUTH_STATE_WAIT_2FA])){
+            $stdin = "u";
+          }
+          
+          
+          
           if($stdin == "b"){
             
             echo "Write your bot Token: ";
             $token = trim(fgets(STDIN));
-            $this->checkAuthenticationBotToken($token);
+            $response = $this->checkAuthenticationBotToken($token);
+            var_dump($response);
             
           }else{
-            echo "Write your Phone number [+11223344556]: ";
-            $phone_number = trim(fgets(STDIN));
-            $response = $this->setAuthenticationPhoneNumber($phone_number);
-            //var_dump($response);
+            if($status->{"@type"}==TDLibService::AUTH_STATE_WAIT_PHONE_NUMBER){
+              echo "Write your Phone number [+11223344556]: ";
+              $phone_number = trim(fgets(STDIN));
+              $response = $this->setAuthenticationPhoneNumber($phone_number);
+              var_dump($response);
+              $status = $this->getAuthorizationState();
+            }
             
-            while($this->authorizationState == TDLibService::AUTH_STATE_WAIT_CODE){
-              echo "Write the code you recived: ";
-              $auth_code = trim(fgets(STDIN));
-              
-              if( !$response->is_registered ){
-                echo "Write your name: ";
-                $name = trim(fgets(STDIN));
-                $response = $this->checkAuthenticationCode($auth_code,$name,"");
-              }else{
-                $response = $this->checkAuthenticationCode($auth_code);
+            if($status->{"@type"}==TDLibService::AUTH_STATE_WAIT_CODE){
+              while($status->{"@type"} == TDLibService::AUTH_STATE_WAIT_CODE){
+                echo "Write the code you recived: ";
+                $auth_code = trim(fgets(STDIN));
+                
+                if( !$status->is_registered ){
+                  echo "Write your name: ";
+                  $name = trim(fgets(STDIN));
+                  $response = $this->checkAuthenticationCode($auth_code,$name,"");
+                }else{
+                  $response = $this->checkAuthenticationCode($auth_code);
+                }
+                var_dump($response);
+                $status = $this->getAuthorizationState();
               }
-              //var_dump($response);
-              
-              while( $this->authorizationState == TDLibService::AUTH_STATE_WAIT_2FA ){
-                $hint = $response->password_hint;
-                echo "Write the your password, Hint[$hint] : ";
+            }
+            
+            if($status->{"@type"}==TDLibService::AUTH_STATE_WAIT_2FA){
+              while( $status->{"@type"} == TDLibService::AUTH_STATE_WAIT_2FA ){
+                $hint = $status->password_hint;
+                echo "Write the your password, Hint[$hint] : "."\e[0m\e[0;30m\e[40m";
                 $auth2fa = trim(fgets(STDIN));
-                $response = $this->checkAuthenticationCode($auth2fa);
-                //var_dump($response);
+                echo "\e[0m\n";
+                $response = $this->checkAuthenticationPassword($auth2fa);
+                var_dump($response);
+                $status = $this->getAuthorizationState();
               }
             }
           }
+        }else{
+          echo "Unknown Status: $this->authorizationState \n";
         }
+        
+        
         if($tries++>$max_tries){
           echo "too many tries\n";
           exit(1); 
@@ -250,6 +297,103 @@ class TDLibService
     }
     
     public function strlen($str){
-      return strlen(iconv('utf-8', 'utf-16le', $str)) / 2;
+      return TDLibUtils::strlen($str);
     }
+    public function parseText($text){
+      return $this->parseTextEntities([
+        'text'=> $text,
+        'parse_mode' => ['@type'=>'textParseModeHTML']
+      ]);
+    }
+    
+    public function sendMsg($chat_id,$text,$parse=false,$keyboard_rows=false,$replyto=false){
+      
+      $queryArray = [
+            '@type' => "sendMessage",
+            'chat_id' => $chat_id,
+            
+            'input_message_content' =>[
+              '@type' => 'inputMessageText',
+              'text' => [
+                 '@type' => 'formattedText',
+                 'text' => $text,
+                 'entities' => []
+               ]
+            ]
+      ];
+      
+      if($replyto){
+        $queryArray['reply_to_message_id'] = $replyto;
+      }
+      
+      if($parse){
+        $queryArray['input_message_content']['text'] = $this->parseTextEntities([
+          'text'=> $text,
+          'parse_mode' => ['@type'=>'textParseModeHTML']
+        ]);
+      }
+      
+      if($keyboard_rows){
+        $keyboard = TDLibKeyboard::parseInline($keyboard_rows);
+        var_export($keyboard);
+        // Keyboard_rows =[[{"text":"I understand the rules","url":"https://telegram.me/geeksTelegramBot?start=confirm"}]];
+        if($keyboard){
+          $queryArray['reply_markup'] = $keyboard;
+        }
+      }
+      //echo json_encode($queryArray);
+      return $this->query($queryArray);
+    }
+}
+
+class TDLibKeyboard{
+  
+  public static function parseInline($rows){
+    if(is_array($rows[0][0])){
+      $rows = json_decode(json_encode($rows));
+    }elseif(is_string($rows)){
+      $rows = json_decode($rows);
+    }elseif(is_object($rows[0][0])){
+      
+    }else{
+      return false;
+    }
+    var_export($rows);
+    if(!isset($rows[0][0]->text)) return false;
+    
+    $keyboard['@type'] = 'replyMarkupInlineKeyboard';
+    foreach($rows as $row_num => $row){
+      foreach($row as $button_num => $button){
+        $keyboard["rows"][$row_num][$button_num]["@type"]="inlineKeyboardButton";
+        $keyboard["rows"][$row_num][$button_num]["text"] = $button->text;
+        if(!empty($button->url)){
+          $keyboard["rows"][$row_num][$button_num]["type"]["@type"] = "inlineKeyboardButtonTypeUrl";
+          $keyboard["rows"][$row_num][$button_num]["type"]["url"] = $button->url;
+        }elseif(!empty($button->callback_data)){
+          $keyboard["rows"][$row_num][$button_num]["type"]["@type"] = "inlineKeyboardButtonTypeCallback";
+          $keyboard["rows"][$row_num][$button_num]["type"]["data"] = base64_encode($button->callback_data);
+        }elseif(!empty($button->data)){
+          $keyboard["rows"][$row_num][$button_num]["type"]["@type"] = "inlineKeyboardButtonTypeCallback";
+          $keyboard["rows"][$row_num][$button_num]["type"]["data"] = base64_encode($button->data);
+        }elseif(!empty($button->switch_inline_query)){
+          $keyboard["rows"][$row_num][$button_num]["type"]["@type"] = "inlineKeyboardButtonTypeSwitchInline";
+          $keyboard["rows"][$row_num][$button_num]["type"]["query"] = $button->switch_inline_query;
+          $keyboard["rows"][$row_num][$button_num]["type"]["in_current_chat"] = $button->switch_inline_query_current_chat??false;
+        }
+        //TODO: More types
+      }
+      $keyboard["rows"][$row_num] = array_values($keyboard["rows"][$row_num]);
+    }
+    if(!isset($keyboard["rows"])) return false;
+    return $keyboard;
+  }
+}
+
+class TDLibUtils{
+  public static function strlen($str){
+    return strlen(iconv('utf-8', 'utf-16le', $str)) / 2;
+  }
+  public static function parseInlineKeyboard($rows){
+    return TDLibKeyboard::parseInline($rows);
+  }
 }
