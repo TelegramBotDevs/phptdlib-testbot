@@ -1,6 +1,23 @@
 {
   "password": "password",
   "cliParams":{
-    "is_bot":true
+    "is_bot":false
+  },
+  "tdlibparams":{
+    "use_test_dc"              : false,
+    "database_directory"       : "/app/testbot",
+    "files_directory"          : "/app/testbot",
+    "use_file_database"        : true,
+    "use_chat_info_database"   : true,
+    "use_message_database"     : true,
+    "use_secret_chats"         : true,
+    "api_id"                   : <API_ID>,
+    "api_hash"                 : "<API_HASH>",
+    "system_language_code"     : "en",
+    "device_model"             : "dockered phptdlib",
+    "system_version"           : "Debian9 dockered-php:zts TDlib PHP-7.3",
+    "application_version"      : "0.0.1",
+    "enable_storage_optimizer" : true,
+    "ignore_file_names"        : false
   }
 }

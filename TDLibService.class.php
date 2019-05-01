@@ -393,6 +393,50 @@ class TDLibUtils{
   public static function strlen($str){
     return strlen(iconv('utf-8', 'utf-16le', $str)) / 2;
   }
+  public static function inverseParse($str,$entities){
+    $str = iconv('utf-8', 'utf-16le', $str);
+    $msg = $str;
+    $pointer = 0;
+    //$msg .= substr($str,0,isset($entities[0]->offset)?$entities[0]->offset:0);
+    
+    foreach($entities as $entity){
+      $offset = $pointer + $entity->offset*2;
+      $length = $entity->length*2;
+      
+      $sbstr = substr($msg,$offset,$length);
+      
+      switch($entity->type->{"@type"}){
+        case "textEntityTypeBold":
+          $sbstring = iconv('utf-8', 'utf-16le',"<b>").$sbstr.iconv('utf-8', 'utf-16le',"</b>");
+        break;
+        case "textEntityTypeItalic":
+          $sbstring = iconv('utf-8', 'utf-16le',"<i>").$sbstr.iconv('utf-8', 'utf-16le',"</i>");
+        break;
+        case "textEntityTypePre":
+          $sbstring = iconv('utf-8', 'utf-16le',"<pre>").$sbstr.iconv('utf-8', 'utf-16le',"</pre>");
+        break;
+        case "textEntityTypeCode":
+          $sbstring = iconv('utf-8', 'utf-16le',"<code>").$sbstr.iconv('utf-8', 'utf-16le',"</code>");
+        break;
+        case "textEntityTypePreCode":
+          $sbstring = iconv('utf-8', 'utf-16le',"<pre>").$sbstr.iconv('utf-8', 'utf-16le',"</pre>");
+        break;
+        case "textEntityTypeMentionName":
+          $sbstring = iconv('utf-8', 'utf-16le',"<a href=\"tg://user?id={$entity->type->user_id}\">").$sbstr.iconv('utf-8', 'utf-16le',"</a>");
+        break;
+        case "textEntityTypeTextUrl":
+          $sbstring = iconv('utf-8', 'utf-16le',"<a href=\"{$entity->type->url}\">").$sbstr.iconv('utf-8', 'utf-16le',"</a>");
+        break;
+        default:
+          $sbstring = $sbstr;
+        break;
+        
+      }
+      $msg = substr_replace($msg, $sbstring, $offset,$length);
+      $pointer += strlen($sbstring) - strlen($sbstr);
+    }
+    return iconv('utf-16le','utf-8',$msg);
+  }
   public static function parseInlineKeyboard($rows){
     return TDLibKeyboard::parseInline($rows);
   }
